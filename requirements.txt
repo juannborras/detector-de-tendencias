@@ -1,0 +1,9 @@
+﻿pymongo
+cassandra-driver
+redis
+neo4j
+python-dotenv
+faker
+pandas
+dash
+plotly
