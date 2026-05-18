@@ -1,4 +1,6 @@
 import argparse
+from app.loaders.load_data import load_all
+from app.queries.run_queries import run_all_queries
 
 from app.connections import (
     get_mongo_db,
@@ -129,7 +131,7 @@ def main():
         "command",
         nargs="?",
         default="test",
-        choices=["test", "setup"],
+        choices=["test", "setup", "load", "queries"],
         help="Comando a ejecutar: test o setup"
     )
 
@@ -140,6 +142,12 @@ def main():
 
     if args.command == "setup":
         setup_all()
+
+    if args.command == "load":
+        load_all()
+
+    if args.command == "queries":
+        run_all_queries()
 
 
 if __name__ == "__main__":
