@@ -14,6 +14,7 @@ from app.models.mongo_schema import setup_mongo
 from app.models.cassandra_schema import setup_cassandra
 from app.models.neo4j_schema import setup_neo4j
 from app.models.redis_keys import setup_redis
+from app.validation.validate_data import validate_all
 
 
 def test_mongo():
@@ -132,7 +133,7 @@ def main():
         "command",
         nargs="?",
         default="test",
-        choices=["test", "setup", "load", "queries", "generate"],
+        choices=["test", "setup", "load", "queries", "generate", "validate"],
         help="Comando a ejecutar: test o setup"
     )
 
@@ -153,6 +154,9 @@ def main():
     if args.command == "generate":
         dataset = generate_dataset()
         print_dataset_summary(dataset)
+
+    if args.command == "validate":
+        validate_all()
 
 if __name__ == "__main__":
     main()
