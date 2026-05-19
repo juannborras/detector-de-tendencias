@@ -1,6 +1,7 @@
 import argparse
 from app.loaders.load_data import load_all
 from app.queries.run_queries import run_all_queries
+from app.generators.data_generator import generate_dataset, print_dataset_summary
 
 from app.connections import (
     get_mongo_db,
@@ -131,7 +132,7 @@ def main():
         "command",
         nargs="?",
         default="test",
-        choices=["test", "setup", "load", "queries"],
+        choices=["test", "setup", "load", "queries", "generate"],
         help="Comando a ejecutar: test o setup"
     )
 
@@ -149,6 +150,9 @@ def main():
     if args.command == "queries":
         run_all_queries()
 
+    if args.command == "generate":
+        dataset = generate_dataset()
+        print_dataset_summary(dataset)
 
 if __name__ == "__main__":
     main()

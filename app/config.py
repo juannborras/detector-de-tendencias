@@ -34,3 +34,11 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j123")
+
+# Dataset
+TOTAL_USUARIOS = int(os.getenv("TOTAL_USUARIOS", "50"))
+TOTAL_PRODUCTOS = int(os.getenv("TOTAL_PRODUCTOS", "180"))
+TOTAL_CATEGORIAS = int(os.getenv("TOTAL_CATEGORIAS", "20"))
+TOTAL_EVENTOS = int(os.getenv("TOTAL_EVENTOS", "750"))
+DATA_SEED = int(os.getenv("DATA_SEED", "42"))
+LOAD_MODE = os.getenv("LOAD_MODE", "reset")
