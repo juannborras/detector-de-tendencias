@@ -4,6 +4,7 @@ from app.config import (
     TOTAL_CATEGORIAS,
     TOTAL_EVENTOS,
     CASSANDRA_KEYSPACE,
+    EXPECTED_TOTAL_REGISTROS,
 )
 
 from app.connections import (
@@ -71,7 +72,7 @@ def validate_config():
 
     return check_result(
         "Total lógico del dataset",
-        1000,
+        EXPECTED_TOTAL_REGISTROS,
         total_logico
     )
 

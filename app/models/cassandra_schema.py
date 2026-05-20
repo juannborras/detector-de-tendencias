@@ -101,4 +101,4 @@ def setup_cassandra(session):
                     ) WITH CLUSTERING ORDER BY (score_tendencia DESC)
                 """)
 
-print("Cassandra setup OK")
+    print("Cassandra setup OK")

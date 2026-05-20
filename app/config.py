@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+
 # Ruta raíz del proyecto:
 # detector-de-tendencias/
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -40,5 +41,6 @@ TOTAL_USUARIOS = int(os.getenv("TOTAL_USUARIOS", "50"))
 TOTAL_PRODUCTOS = int(os.getenv("TOTAL_PRODUCTOS", "180"))
 TOTAL_CATEGORIAS = int(os.getenv("TOTAL_CATEGORIAS", "20"))
 TOTAL_EVENTOS = int(os.getenv("TOTAL_EVENTOS", "750"))
+EXPECTED_TOTAL_REGISTROS = int(os.getenv("EXPECTED_TOTAL_REGISTROS", "1000"))
 DATA_SEED = int(os.getenv("DATA_SEED", "42"))
 LOAD_MODE = os.getenv("LOAD_MODE", "reset")

@@ -37,3 +37,20 @@ def run_cassandra_queries():
     print(data)
 
     return data
+
+def query_eventos_por_producto(session):
+    #consulta 1
+
+def query_eventos_por_usuario(session):
+    #consulta 2
+
+def query_eventos_por_categoria(session):
+    #consulta 3
+
+def query_eventos_por_tipo(session):
+    #consulta 4
+
+def query_resumen_diario(session):
+    #consulta 5
+
+def query_tendencia_por_categoria(session)
