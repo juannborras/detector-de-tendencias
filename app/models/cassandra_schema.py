@@ -1,6 +1,31 @@
 from app.config import CASSANDRA_KEYSPACE
 
 
+def add_column_if_missing(session, table_name, column_name, column_type):
+    """
+    Agrega una columna a una tabla existente si todavia no esta creada.
+
+    CREATE TABLE IF NOT EXISTS no modifica tablas ya existentes. Por eso,
+    cuando agregamos una metrica nueva como total_favoritos, necesitamos
+    intentar el ALTER TABLE para bases que ya fueron creadas previamente.
+    """
+
+    try:
+        session.execute(
+            f"ALTER TABLE {table_name} ADD {column_name} {column_type}"
+        )
+    except Exception as error:
+        message = str(error).lower()
+        expected_existing_column_error = (
+            "already" in message
+            or "duplicate" in message
+            or "declared" in message
+        )
+
+        if not expected_existing_column_error:
+            raise
+
+
 def setup_cassandra(session):
     """
     Crea keyspace y tablas para Cassandra.
@@ -67,6 +92,7 @@ def setup_cassandra(session):
                                                                   total_vistas int,
                                                                   total_clicks int,
                                                                   total_busquedas int,
+                                                                  total_favoritos int,
                                                                   total_compras int,
                                                                   score_tendencia double,
                                                                   PRIMARY KEY ((fecha), producto_id)
@@ -96,9 +122,24 @@ def setup_cassandra(session):
                                                                               total_vistas int,
                                                                               total_clicks int,
                                                                               total_busquedas int,
+                                                                              total_favoritos int,
                                                                               total_compras int,
                                                                               PRIMARY KEY ((categoria_id, fecha), score_tendencia, producto_id)
                     ) WITH CLUSTERING ORDER BY (score_tendencia DESC)
                 """)
+
+    add_column_if_missing(
+        session,
+        "resumen_diario",
+        "total_favoritos",
+        "int"
+    )
+
+    add_column_if_missing(
+        session,
+        "tendencias_por_categoria_fecha",
+        "total_favoritos",
+        "int"
+    )
 
     print("Cassandra setup OK")

@@ -80,6 +80,7 @@ def load_cassandra(dataset):
             "total_vistas": 0,
             "total_clicks": 0,
             "total_busquedas": 0,
+            "total_favoritos": 0,
             "total_compras": 0,
             "score_tendencia": 0.0,
             "categoria_id": None,
@@ -146,6 +147,8 @@ def load_cassandra(dataset):
                 resumen[key]["total_clicks"] += 1
             elif tipo_evento == "busqueda":
                 resumen[key]["total_busquedas"] += 1
+            elif tipo_evento == "favorito":
+                resumen[key]["total_favoritos"] += 1
             elif tipo_evento == "compra":
                 resumen[key]["total_compras"] += 1
 
@@ -153,18 +156,18 @@ def load_cassandra(dataset):
                                          INSERT INTO resumen_diario (
                                              fecha, producto_id, categoria_id, total_eventos,
                                              total_vistas, total_clicks, total_busquedas,
-                                             total_compras, score_tendencia
+                                             total_favoritos, total_compras, score_tendencia
                                          )
-                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                          """)
 
         insert_tendencia_categoria = session.prepare("""
                                                      INSERT INTO tendencias_por_categoria_fecha (
                                                          categoria_id, fecha, score_tendencia, producto_id,
                                                          total_eventos, total_vistas, total_clicks,
-                                                         total_busquedas, total_compras
+                                                         total_busquedas, total_favoritos, total_compras
                                                      )
-                                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                                      """)
 
         for (fecha, producto_id), data in resumen.items():
@@ -176,6 +179,7 @@ def load_cassandra(dataset):
                 data["total_vistas"],
                 data["total_clicks"],
                 data["total_busquedas"],
+                data["total_favoritos"],
                 data["total_compras"],
                 float(data["score_tendencia"]),
             ))
@@ -189,6 +193,7 @@ def load_cassandra(dataset):
                 data["total_vistas"],
                 data["total_clicks"],
                 data["total_busquedas"],
+                data["total_favoritos"],
                 data["total_compras"],
             ))
 

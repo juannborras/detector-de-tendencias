@@ -1,6 +1,3 @@
-from pymongo.errors import CollectionInvalid
-
-
 def setup_mongo(db):
     """
     Crea colecciones e índices para MongoDB.
@@ -10,6 +7,8 @@ def setup_mongo(db):
     - usuarios
     - categorías
     """
+
+    from pymongo.errors import CollectionInvalid
 
     collections = db.list_collection_names()
 

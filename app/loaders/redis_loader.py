@@ -1,7 +1,7 @@
 import json
 from collections import defaultdict
 
-from app.config import LOAD_MODE
+from app.config import LOAD_MODE, QUERY_TOP_LIMIT
 from app.connections import get_redis_client
 from app.models.redis_keys import (
     TRENDING_GLOBAL_KEY,
@@ -34,7 +34,7 @@ def load_redis(dataset):
     Redis se usa para:
     - ranking global
     - ranking por categoría
-    - cache top 10
+    - cache top N
     - contador de eventos
     - sesiones temporales
     """
@@ -77,7 +77,7 @@ def load_redis(dataset):
     top10_global = redis_client.zrevrange(
         TRENDING_GLOBAL_KEY,
         0,
-        9,
+        QUERY_TOP_LIMIT - 1,
         withscores=True
     )
 
@@ -105,5 +105,5 @@ def load_redis(dataset):
 
     print(f"Redis: {len(eventos)} eventos procesados")
     print(f"Redis: ranking global actualizado")
-    print(f"Redis: cache top 10 creado con TTL")
+    print(f"Redis: cache top {QUERY_TOP_LIMIT} creado con TTL")
     print(f"Redis: {len(usuarios)} sesiones creadas con TTL")

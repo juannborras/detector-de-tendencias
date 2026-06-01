@@ -5,6 +5,7 @@ from app.config import (
     TOTAL_EVENTOS,
     CASSANDRA_KEYSPACE,
     EXPECTED_TOTAL_REGISTROS,
+    MIN_PRODUCTOS_POR_CATEGORIA,
 )
 
 from app.connections import (
@@ -15,6 +16,10 @@ from app.connections import (
 )
 
 from app.models.redis_keys import EVENT_COUNTER_KEY, TRENDING_GLOBAL_KEY
+from app.generators.data_generator import (
+    PRODUCT_BASE_NAMES_BY_CATEGORY_ID,
+    PRODUCT_BRANDS_BY_CATEGORY_ID,
+)
 
 
 def check_result(label, expected, actual):
@@ -49,6 +54,51 @@ def check_positive(label, actual):
     return ok
 
 
+def check_minimum(label, minimum, actual):
+    """
+    Valida que un valor sea mayor o igual a un minimo esperado.
+    Sirve para reglas de distribucion, como productos por categoria.
+    """
+
+    ok = actual >= minimum
+    status = "OK" if ok else "ERROR"
+
+    print(f"{label}: {status}")
+    print(f"  minimo: {minimum}")
+    print(f"  actual: {actual}")
+
+    return ok
+
+
+def product_matches_category(product):
+    """
+    Valida que el nombre base del producto corresponda a su categoria.
+    """
+
+    allowed_names = PRODUCT_BASE_NAMES_BY_CATEGORY_ID.get(
+        product.get("categoria_id"),
+        [],
+    )
+
+    return any(
+        product.get("nombre", "").startswith(f"{name} ")
+        for name in allowed_names
+    )
+
+
+def brand_matches_category(product):
+    """
+    Valida que la marca del producto corresponda a su categoria.
+    """
+
+    allowed_brands = PRODUCT_BRANDS_BY_CATEGORY_ID.get(
+        product.get("categoria_id"),
+        [],
+    )
+
+    return product.get("marca") in allowed_brands
+
+
 def validate_config():
     """
     Valida que la configuración del dataset lógico sea consistente.
@@ -67,14 +117,26 @@ def validate_config():
     print(f"Usuarios configurados: {TOTAL_USUARIOS}")
     print(f"Productos configurados: {TOTAL_PRODUCTOS}")
     print(f"Categorías configuradas: {TOTAL_CATEGORIAS}")
+    print(f"Minimo productos por categoria: {MIN_PRODUCTOS_POR_CATEGORIA}")
     print(f"Eventos configurados: {TOTAL_EVENTOS}")
     print(f"Total lógico configurado: {total_logico}")
 
-    return check_result(
-        "Total lógico del dataset",
-        EXPECTED_TOTAL_REGISTROS,
-        total_logico
-    )
+    minimum_required_products = TOTAL_CATEGORIAS * MIN_PRODUCTOS_POR_CATEGORIA
+
+    results = [
+        check_result(
+            "Total lógico del dataset",
+            EXPECTED_TOTAL_REGISTROS,
+            total_logico
+        ),
+        check_minimum(
+            "Productos suficientes para cubrir categorias",
+            minimum_required_products,
+            TOTAL_PRODUCTOS
+        )
+    ]
+
+    return all(results)
 
 
 def validate_mongo():
@@ -91,12 +153,107 @@ def validate_mongo():
         usuarios = db.usuarios.count_documents({})
         productos = db.productos.count_documents({})
         categorias = db.categorias.count_documents({})
+        productos_documentos = list(
+            db.productos.find(
+                {},
+                {
+                    "_id": 0,
+                    "producto_id": 1,
+                    "nombre": 1,
+                    "marca": 1,
+                    "categoria_id": 1,
+                }
+            )
+        )
+        productos_por_categoria = list(
+            db.categorias.aggregate([
+                {
+                    "$lookup": {
+                        "from": "productos",
+                        "localField": "categoria_id",
+                        "foreignField": "categoria_id",
+                        "as": "productos"
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 0,
+                        "categoria_id": 1,
+                        "nombre": 1,
+                        "total_productos": {"$size": "$productos"}
+                    }
+                }
+            ])
+        )
+
+        minimo_real = min(
+            (categoria["total_productos"] for categoria in productos_por_categoria),
+            default=0
+        )
+
+        categorias_insuficientes = [
+            categoria
+            for categoria in productos_por_categoria
+            if categoria["total_productos"] < MIN_PRODUCTOS_POR_CATEGORIA
+        ]
+        productos_incoherentes = [
+            producto
+            for producto in productos_documentos
+            if not product_matches_category(producto)
+        ]
+        marcas_incoherentes = [
+            producto
+            for producto in productos_documentos
+            if not brand_matches_category(producto)
+        ]
 
         results = [
             check_result("MongoDB usuarios", TOTAL_USUARIOS, usuarios),
             check_result("MongoDB productos", TOTAL_PRODUCTOS, productos),
             check_result("MongoDB categorías", TOTAL_CATEGORIAS, categorias),
+            check_minimum(
+                "MongoDB productos por categoria",
+                MIN_PRODUCTOS_POR_CATEGORIA,
+                minimo_real
+            ),
+            check_result(
+                "MongoDB productos coherentes con categoria",
+                0,
+                len(productos_incoherentes)
+            ),
+            check_result(
+                "MongoDB marcas coherentes con categoria",
+                0,
+                len(marcas_incoherentes)
+            ),
         ]
+
+        if categorias_insuficientes:
+            print("Categorias con menos productos de los esperados:")
+            for categoria in categorias_insuficientes:
+                print(
+                    f"  {categoria['categoria_id']} - "
+                    f"{categoria['nombre']}: {categoria['total_productos']}"
+                )
+
+        if productos_incoherentes:
+            print("Productos con categoria incoherente:")
+            for producto in productos_incoherentes[:10]:
+                print(
+                    f"  {producto['producto_id']} - "
+                    f"{producto['nombre']} - "
+                    f"{producto['categoria_id']}"
+                )
+
+        if marcas_incoherentes:
+            print("Productos con marca incoherente:")
+            for producto in marcas_incoherentes[:10]:
+                print(
+                    f"  {producto['producto_id']} - "
+                    f"{producto['nombre']} - "
+                    f"{producto['marca']} - "
+                    f"{producto['categoria_id']}"
+                )
 
         return all(results)
 
@@ -149,7 +306,7 @@ def validate_cassandra():
         cluster, session = get_cassandra_session()
         session.set_keyspace(CASSANDRA_KEYSPACE)
 
-        # Para este TPI, con 750 eventos, COUNT(*) es aceptable.
+        # Para este TPI, con 1250 eventos, COUNT(*) es aceptable.
         # En producción con millones de filas no sería una consulta recomendable.
         eventos_producto = session.execute(
             "SELECT COUNT(*) AS total FROM eventos_por_producto"

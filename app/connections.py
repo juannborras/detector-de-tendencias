@@ -1,8 +1,3 @@
-from pymongo import MongoClient
-from redis import Redis
-from neo4j import GraphDatabase
-from cassandra.cluster import Cluster
-
 from app.config import (
     MONGO_URI,
     MONGO_DB,
@@ -20,6 +15,8 @@ def get_mongo_db():
     """
     Crea una conexión a MongoDB y devuelve la base de datos del proyecto.
     """
+    from pymongo import MongoClient
+
     client = MongoClient(MONGO_URI)
     db = client[MONGO_DB]
     return client, db
@@ -29,6 +26,8 @@ def get_redis_client():
     """
     Crea una conexión a Redis.
     """
+    from redis import Redis
+
     redis_client = Redis(
         host=REDIS_HOST,
         port=REDIS_PORT,
@@ -42,6 +41,8 @@ def get_neo4j_driver():
     """
     Crea una conexión a Neo4j usando el protocolo Bolt.
     """
+    from neo4j import GraphDatabase
+
     driver = GraphDatabase.driver(
         NEO4J_URI,
         auth=(NEO4J_USER, NEO4J_PASSWORD)
@@ -53,6 +54,8 @@ def get_cassandra_session():
     """
     Crea una conexión a Cassandra.
     """
+    from cassandra.cluster import Cluster
+
     cluster = Cluster(
         [CASSANDRA_HOST],
         port=CASSANDRA_PORT

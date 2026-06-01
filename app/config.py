@@ -35,12 +35,21 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j123")
+NEO4J_DEFAULT_EVENT_TYPE = os.getenv("NEO4J_DEFAULT_EVENT_TYPE", "COMPRO")
 
 # Dataset
 TOTAL_USUARIOS = int(os.getenv("TOTAL_USUARIOS", "50"))
 TOTAL_PRODUCTOS = int(os.getenv("TOTAL_PRODUCTOS", "180"))
 TOTAL_CATEGORIAS = int(os.getenv("TOTAL_CATEGORIAS", "20"))
-TOTAL_EVENTOS = int(os.getenv("TOTAL_EVENTOS", "750"))
-EXPECTED_TOTAL_REGISTROS = int(os.getenv("EXPECTED_TOTAL_REGISTROS", "1000"))
+TOTAL_EVENTOS = int(os.getenv("TOTAL_EVENTOS", "1250"))
+EXPECTED_TOTAL_REGISTROS = int(os.getenv("EXPECTED_TOTAL_REGISTROS", "1500"))
+MIN_PRODUCTOS_POR_CATEGORIA = int(os.getenv("MIN_PRODUCTOS_POR_CATEGORIA", "5"))
 DATA_SEED = int(os.getenv("DATA_SEED", "42"))
 LOAD_MODE = os.getenv("LOAD_MODE", "reset")
+
+# Consultas demo/dashboard
+QUERY_TOP_LIMIT = int(os.getenv("QUERY_TOP_LIMIT", "10"))
+QUERY_CATEGORY_TOP_LIMIT = int(os.getenv("QUERY_CATEGORY_TOP_LIMIT", "3"))
+QUERY_SAMPLE_LIMIT = int(os.getenv("QUERY_SAMPLE_LIMIT", "10"))
+QUERY_FETCH_LIMIT = int(os.getenv("QUERY_FETCH_LIMIT", "200"))
+QUERY_LOW_STOCK_THRESHOLD = int(os.getenv("QUERY_LOW_STOCK_THRESHOLD", "10"))

@@ -133,8 +133,16 @@ def main():
         "command",
         nargs="?",
         default="test",
-        choices=["test", "setup", "load", "queries", "generate", "validate"],
-        help="Comando a ejecutar: test o setup"
+        choices=[
+            "test",
+            "setup",
+            "load",
+            "queries",
+            "generate",
+            "validate",
+            "dashboard",
+        ],
+        help="Comando a ejecutar"
     )
 
     args = parser.parse_args()
@@ -157,6 +165,11 @@ def main():
 
     if args.command == "validate":
         validate_all()
+
+    if args.command == "dashboard":
+        from app.dashboard.app import run_dashboard
+
+        run_dashboard()
 
 if __name__ == "__main__":
     main()

@@ -204,21 +204,29 @@ tendencias_por_categoria_fecha
 {
     "status": "ok",
     "counts": {
-        "eventos_logicos": 750,
-        "eventos_por_producto": 750,
-        "eventos_por_usuario": 750,
-        "eventos_por_categoria": 750,
-        "eventos_por_tipo": 750,
+        "eventos_logicos": 1250,
+        "eventos_por_producto": 1250,
+        "eventos_por_usuario": 1250,
+        "eventos_por_categoria": 1250,
+        "eventos_por_tipo": 1250,
         "resumen_diario": 400,
         "tendencias_por_categoria_fecha": 400
     },
+    "selected_fecha": "2026-05-31",
+    "resumen_diario_fechas": [
+        "2026-05-01",
+        "2026-05-02",
+        "2026-05-31"
+    ],
     "eventos_por_tipo": [
         {
             "tipo_evento": "vista",
+            "fecha": "2026-05-31",
             "total": 330
         },
         {
             "tipo_evento": "click",
+            "fecha": "2026-05-31",
             "total": 180
         }
     ],
@@ -228,7 +236,26 @@ tendencias_por_categoria_fecha
             "fecha": "2026-05-01",
             "producto_id": "prod_010",
             "score_tendencia": 27.0,
-            "total_eventos": 8
+            "total_eventos": 8,
+            "total_vistas": 3,
+            "total_clicks": 2,
+            "total_busquedas": 1,
+            "total_favoritos": 0,
+            "total_compras": 2
+        }
+    ],
+    "top_tendencias_resumen_diario": [
+        {
+            "fecha": "2026-05-01",
+            "producto_id": "prod_010",
+            "categoria_id": "cat_003",
+            "total_eventos": 8,
+            "total_vistas": 3,
+            "total_clicks": 2,
+            "total_busquedas": 1,
+            "total_favoritos": 0,
+            "total_compras": 2,
+            "score_tendencia": 27.0
         }
     ],
     "resumen_diario_sample": [
@@ -240,6 +267,7 @@ tendencias_por_categoria_fecha
             "total_vistas": 3,
             "total_clicks": 2,
             "total_busquedas": 1,
+            "total_favoritos": 0,
             "total_compras": 2,
             "score_tendencia": 27.0
         }
@@ -259,8 +287,11 @@ tendencias_por_categoria_fecha
 | `counts.eventos_por_tipo` | Filas en tabla eventos por tipo |
 | `counts.resumen_diario` | Filas resumen generadas |
 | `counts.tendencias_por_categoria_fecha` | Filas de tendencias generadas |
+| `selected_fecha` | Fecha elegida para mostrar resumen diario y top diario |
+| `resumen_diario_fechas` | Fechas reales disponibles en `resumen_diario` |
 | `eventos_por_tipo` | Cantidad de eventos agrupados por tipo |
 | `top_tendencias_categoria_fecha` | Productos tendencia por categoría y fecha |
+| `top_tendencias_resumen_diario` | Productos con mayor score dentro de una fecha, calculados desde resumen_diario |
 | `resumen_diario_sample` | Muestra de resúmenes diarios |
 
 ## Placeholder válido mientras no esté implementado
@@ -278,8 +309,11 @@ tendencias_por_categoria_fecha
         "resumen_diario": 0,
         "tendencias_por_categoria_fecha": 0
     },
+    "selected_fecha": None,
+    "resumen_diario_fechas": [],
     "eventos_por_tipo": [],
     "top_tendencias_categoria_fecha": [],
+    "top_tendencias_resumen_diario": [],
     "resumen_diario_sample": []
 }
 ```
@@ -327,7 +361,7 @@ sesion:<usuario_id>
 ```python
 {
     "status": "ok",
-    "contador_eventos": 750,
+    "contador_eventos": 1250,
     "top_global": [
         {
             "producto_id": "prod_010",
@@ -458,7 +492,7 @@ Relaciones:
         "productos": 180,
         "categorias": 20,
         "relaciones_interaccion": 620,
-        "eventos_representados": 750
+        "eventos_representados": 1250
     },
     "relaciones_por_tipo": [
         {
@@ -564,6 +598,14 @@ De esa forma, el dashboard consume una única estructura general.
 
 ---
 
+El agregador puede enriquecer datos entre motores sin modificar la salida
+propia de cada base. En particular, usa MongoDB como catalogo maestro para
+agregar `categoria_nombre` a filas que llegan desde Cassandra con
+`categoria_id`. Esto mejora la legibilidad del dashboard sin cambiar las tablas
+fisicas de Cassandra.
+
+---
+
 # 8. Reglas para los responsables
 
 Cada responsable debe respetar estas reglas:
@@ -595,7 +637,7 @@ python -m app.main queries
 python -m app.main dashboard
 ```
 
-El dashboard debe funcionar aunque alguna base todavía tenga datos pendientes. En ese caso, mostrará `pending` en vez de romperse.
+El dashboard consume estas funciones de datos y debe funcionar aunque alguna base todavía tenga datos pendientes. En ese caso, mostrará `pending` en vez de romperse.
 
 ---
 

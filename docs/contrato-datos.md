@@ -35,3 +35,21 @@ click
 busqueda
 compra
 favorito
+```
+
+## Reglas de distribucion del dataset
+
+Para que las consultas por categoria sean utiles en consola y en el dashboard,
+el dataset debe cumplir esta regla minima:
+
+```text
+Cada categoria debe tener al menos 5 productos asociados.
+```
+
+Ademas, los nombres base de los productos deben ser coherentes con la
+categoria asignada. Por ejemplo, una impresora debe pertenecer a Oficina o
+Computacion, no a Deportes.
+
+Las marcas tambien deben ser coherentes con la categoria. Cada categoria define
+un conjunto chico de marcas validas para evitar combinaciones poco realistas,
+por ejemplo una pelota de futbol marca Lenovo.

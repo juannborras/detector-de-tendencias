@@ -1,9 +1,21 @@
+from datetime import datetime
+
 from cassandra.util import Date
 
-from app.config import CASSANDRA_KEYSPACE, TOTAL_EVENTOS
+from app.config import (
+    CASSANDRA_KEYSPACE,
+    QUERY_FETCH_LIMIT,
+    QUERY_SAMPLE_LIMIT,
+    QUERY_TOP_LIMIT,
+    TOTAL_EVENTOS,
+)
 from app.connections import get_cassandra_session
 
 EVENT_TYPES = ["vista", "click", "busqueda", "favorito", "compra"]
+
+
+def normalize_limit(limit):
+    return max(1, int(limit))
 
 def serialize_value(value):
     """
@@ -29,6 +41,25 @@ def serialize_value(value):
         return value.isoformat()
 
     return value
+
+
+def parse_fecha(fecha):
+    """
+    Normaliza una fecha recibida desde consola, dashboard o Cassandra.
+
+    El dashboard trabaja con strings ISO como "2026-05-01", pero Cassandra
+    consulta la partition key date con objetos fecha. Esta función permite usar
+    la misma query desde ambos lugares.
+    """
+
+    if fecha is None:
+        return None
+
+    if isinstance(fecha, str):
+        return datetime.strptime(fecha.strip(), "%Y-%m-%d").date()
+
+    return fecha
+
 
 def count_table(session, table_name):
     """
@@ -69,7 +100,45 @@ def get_sample_row(session, table_name):
         f"SELECT * FROM {table_name} LIMIT 1"
     ).one()
 
-def get_eventos_por_tipo_for_dashboard(session):
+
+def get_resumen_diario_fechas(session):
+    """
+    Devuelve las fechas que realmente existen en resumen_diario.
+
+    Como resumen_diario se carga a partir de eventos reales, cada fecha devuelta
+    tiene al menos un producto con eventos asociados.
+    """
+
+    rows = session.execute("""
+                           SELECT DISTINCT fecha
+                           FROM resumen_diario
+                           """)
+
+    return sorted({
+        serialize_value(row.fecha)
+        for row in rows
+        if row.fecha is not None
+    })
+
+
+def select_dashboard_fecha(available_dates, requested_fecha=None):
+    """
+    Elige una fecha segura para dashboard.
+
+    Si el usuario seleccionó una fecha que existe, se usa esa. Si no, se toma
+    la fecha más reciente disponible.
+    """
+
+    if not available_dates:
+        return None
+
+    if requested_fecha in available_dates:
+        return requested_fecha
+
+    return available_dates[-1]
+
+
+def get_eventos_por_tipo_for_dashboard(session, fecha=None):
     """
     Devuelve la cantidad de eventos por tipo para una fecha existente.
 
@@ -79,12 +148,19 @@ def get_eventos_por_tipo_for_dashboard(session):
     tipo_evento + fecha.
     """
 
-    sample = get_sample_row(session, "eventos_por_tipo")
+    parsed_fecha = parse_fecha(fecha)
 
-    if not sample:
+    if not parsed_fecha:
+        sample = get_sample_row(session, "eventos_por_tipo")
+
+        if not sample:
+            return []
+
+        parsed_fecha = sample.fecha
+
+    if not parsed_fecha:
         return []
 
-    fecha = sample.fecha
     result = []
 
     for event_type in EVENT_TYPES:
@@ -93,18 +169,18 @@ def get_eventos_por_tipo_for_dashboard(session):
                               FROM eventos_por_tipo
                               WHERE tipo_evento = %s
                                 AND fecha = %s
-                              """, (event_type, fecha)).one()
+                              """, (event_type, parsed_fecha)).one()
 
         result.append({
             "tipo_evento": event_type,
-            "fecha": serialize_value(fecha),
+            "fecha": serialize_value(parsed_fecha),
             "total": row.total
         })
 
     return result
 
 
-def get_cassandra_dashboard_data():
+def get_cassandra_dashboard_data(fecha=None):
     """
     Devuelve datos Cassandra para el dashboard.
 
@@ -131,14 +207,28 @@ def get_cassandra_dashboard_data():
             ),
         }
 
-        resumen = query_resumen_diario(session)
+        available_dates = get_resumen_diario_fechas(session)
+        requested_fecha = serialize_value(parse_fecha(fecha)) if fecha else None
+        selected_fecha = select_dashboard_fecha(available_dates, requested_fecha)
+
+        resumen = query_resumen_diario(session, selected_fecha)
         tendencias = query_tendencias_por_categoria_fecha(session)
+        tendencias_diarias = query_top_tendencias_resumen_diario(
+            session,
+            fecha=selected_fecha,
+        )
 
         return {
             "status": "ok",
             "counts": counts,
-            "eventos_por_tipo": get_eventos_por_tipo_for_dashboard(session),
+            "selected_fecha": selected_fecha,
+            "resumen_diario_fechas": available_dates,
+            "eventos_por_tipo": get_eventos_por_tipo_for_dashboard(
+                session,
+                selected_fecha,
+            ),
             "top_tendencias_categoria_fecha": tendencias["rows"],
+            "top_tendencias_resumen_diario": tendencias_diarias["rows"],
             "resumen_diario_sample": resumen["rows"],
         }
 
@@ -156,8 +246,11 @@ def get_cassandra_dashboard_data():
                 "resumen_diario": 0,
                 "tendencias_por_categoria_fecha": 0
             },
+            "selected_fecha": None,
+            "resumen_diario_fechas": [],
             "eventos_por_tipo": [],
             "top_tendencias_categoria_fecha": [],
+            "top_tendencias_resumen_diario": [],
             "resumen_diario_sample": []
         }
 
@@ -167,7 +260,7 @@ def get_cassandra_dashboard_data():
 
 def run_cassandra_queries():
     """
-    Ejecuta las 6 consultas Cassandra por consola.
+    Ejecuta las consultas Cassandra por consola.
     """
 
     cluster = None
@@ -183,6 +276,7 @@ def run_cassandra_queries():
             query_eventos_por_tipo(session),
             query_resumen_diario(session),
             query_tendencias_por_categoria_fecha(session),
+            query_top_tendencias_resumen_diario(session),
         ]
 
         print("Cassandra queries")
@@ -210,7 +304,7 @@ def run_cassandra_queries():
         if cluster:
             cluster.shutdown()
 
-def query_eventos_por_producto(session):
+def query_eventos_por_producto(session, limit=QUERY_SAMPLE_LIMIT):
     """
     Consulta 1:
     obtiene los eventos de un producto específico en una fecha específica.
@@ -238,12 +332,14 @@ def query_eventos_por_producto(session):
             "rows": []
         }
 
-    rows = session.execute("""
+    safe_limit = normalize_limit(limit)
+
+    rows = session.execute(f"""
                            SELECT producto_id, fecha, timestamp, evento_id, usuario_id, tipo_evento, categoria_id
                            FROM eventos_por_producto
                            WHERE producto_id = %s
                              AND fecha = %s
-                               LIMIT 10
+                               LIMIT {safe_limit}
                            """, (sample.producto_id, sample.fecha))
 
     return {
@@ -257,7 +353,7 @@ def query_eventos_por_producto(session):
     }
 
 
-def query_eventos_por_usuario(session):
+def query_eventos_por_usuario(session, limit=QUERY_SAMPLE_LIMIT):
     """
     Consulta 2:
     obtiene los eventos realizados por un usuario específico
@@ -286,12 +382,14 @@ def query_eventos_por_usuario(session):
             "rows": []
         }
 
-    rows = session.execute("""
+    safe_limit = normalize_limit(limit)
+
+    rows = session.execute(f"""
         SELECT usuario_id, fecha, timestamp, evento_id, producto_id, tipo_evento, categoria_id
         FROM eventos_por_usuario
         WHERE usuario_id = %s
           AND fecha = %s
-        LIMIT 10
+        LIMIT {safe_limit}
     """, (sample.usuario_id, sample.fecha))
 
     return {
@@ -305,7 +403,7 @@ def query_eventos_por_usuario(session):
     }
 
 
-def query_eventos_por_categoria(session):
+def query_eventos_por_categoria(session, limit=QUERY_SAMPLE_LIMIT):
     """
     Consulta 3:
     obtiene los eventos ocurridos dentro de una categoría específica
@@ -334,12 +432,14 @@ def query_eventos_por_categoria(session):
             "rows": []
         }
 
-    rows = session.execute("""
+    safe_limit = normalize_limit(limit)
+
+    rows = session.execute(f"""
         SELECT categoria_id, fecha, timestamp, evento_id, usuario_id, producto_id, tipo_evento
         FROM eventos_por_categoria
         WHERE categoria_id = %s
           AND fecha = %s
-        LIMIT 10
+        LIMIT {safe_limit}
     """, (sample.categoria_id, sample.fecha))
 
     return {
@@ -354,7 +454,7 @@ def query_eventos_por_categoria(session):
 
 
 
-def query_eventos_por_tipo(session):
+def query_eventos_por_tipo(session, limit=QUERY_SAMPLE_LIMIT):
     """
     Consulta 4:
     obtiene los eventos de un tipo específico en una fecha específica.
@@ -382,12 +482,14 @@ def query_eventos_por_tipo(session):
             "rows": []
         }
 
-    rows = session.execute("""
+    safe_limit = normalize_limit(limit)
+
+    rows = session.execute(f"""
         SELECT tipo_evento, fecha, timestamp, evento_id, usuario_id, producto_id, categoria_id
         FROM eventos_por_tipo
         WHERE tipo_evento = %s
           AND fecha = %s
-        LIMIT 10
+        LIMIT {safe_limit}
     """, (sample.tipo_evento, sample.fecha))
 
     return {
@@ -402,7 +504,12 @@ def query_eventos_por_tipo(session):
 
 
 
-def query_resumen_diario(session):
+def query_resumen_diario(
+    session,
+    fecha=None,
+    limit=QUERY_TOP_LIMIT,
+    fetch_limit=QUERY_FETCH_LIMIT,
+):
     """
     Consulta 5:
     obtiene el resumen diario de productos para una fecha específica.
@@ -420,9 +527,15 @@ def query_resumen_diario(session):
     por producto y fecha.
     """
 
-    sample = get_sample_row(session, "resumen_diario")
+    parsed_fecha = parse_fecha(fecha)
 
-    if not sample:
+    if not parsed_fecha:
+        sample = get_sample_row(session, "resumen_diario")
+
+        if sample:
+            parsed_fecha = sample.fecha
+
+    if not parsed_fecha:
         return {
             "query": "resumen_diario",
             "descripcion": "Resumen diario de productos",
@@ -430,25 +543,39 @@ def query_resumen_diario(session):
             "rows": []
         }
 
-    rows = session.execute("""
+    safe_limit = normalize_limit(limit)
+    safe_fetch_limit = normalize_limit(fetch_limit)
+
+    rows = session.execute(f"""
                            SELECT fecha, producto_id, categoria_id, total_eventos,
                                   total_vistas, total_clicks, total_busquedas,
+                                  total_favoritos,
                                   total_compras, score_tendencia
                            FROM resumen_diario
                            WHERE fecha = %s
-                               LIMIT 10
-                           """, (sample.fecha,))
+                           LIMIT {safe_fetch_limit}
+                           """, (parsed_fecha,))
+
+    sorted_rows = sorted(
+        [row_to_dict(row) for row in rows],
+        key=lambda row: (
+            row.get("score_tendencia") or 0,
+            row.get("total_eventos") or 0,
+            row.get("producto_id") or ""
+        ),
+        reverse=True
+    )
 
     return {
         "query": "resumen_diario",
         "descripcion": "Resumen diario de productos",
         "partition_key": {
-            "fecha": serialize_value(sample.fecha)
+            "fecha": serialize_value(parsed_fecha)
         },
-        "rows": [row_to_dict(row) for row in rows]
+        "rows": sorted_rows[:safe_limit]
     }
 
-def query_tendencias_por_categoria_fecha(session):
+def query_tendencias_por_categoria_fecha(session, limit=QUERY_TOP_LIMIT):
     """
     Consulta 6:
     obtiene el top de productos tendencia dentro de una categoría
@@ -477,14 +604,16 @@ def query_tendencias_por_categoria_fecha(session):
             "rows": []
         }
 
-    rows = session.execute("""
+    safe_limit = normalize_limit(limit)
+
+    rows = session.execute(f"""
                            SELECT categoria_id, fecha, score_tendencia, producto_id,
                                   total_eventos, total_vistas, total_clicks,
-                                  total_busquedas, total_compras
+                                  total_busquedas, total_favoritos, total_compras
                            FROM tendencias_por_categoria_fecha
                            WHERE categoria_id = %s
                              AND fecha = %s
-                               LIMIT 10
+                               LIMIT {safe_limit}
                            """, (sample.categoria_id, sample.fecha))
 
     return {
@@ -495,4 +624,80 @@ def query_tendencias_por_categoria_fecha(session):
             "fecha": serialize_value(sample.fecha)
         },
         "rows": [row_to_dict(row) for row in rows]
+    }
+
+
+def query_top_tendencias_resumen_diario(
+    session,
+    fecha=None,
+    limit=QUERY_TOP_LIMIT,
+    fetch_limit=QUERY_FETCH_LIMIT,
+):
+    """
+    Consulta 7:
+    obtiene los productos con mayor score dentro de una fecha real.
+
+    Tabla usada:
+    resumen_diario
+
+    Partition key:
+    fecha
+
+    Funcionamiento:
+    Esta consulta usa los resumenes diarios como fuente de verdad para detectar
+    tendencias. Primero toma una fecha existente, luego trae los productos de
+    esa fecha y ordena en Python por score_tendencia descendente.
+
+    Nota:
+    Para un sistema productivo con muchos datos, convendria crear una tabla
+    especifica modelada por esta consulta, por ejemplo tendencias_por_fecha.
+    Para el TPI, con dataset chico, esta adaptacion es clara para explicar el
+    detector sin agregar otra tabla fisica.
+    """
+
+    parsed_fecha = parse_fecha(fecha)
+
+    if not parsed_fecha:
+        sample = get_sample_row(session, "resumen_diario")
+
+        if sample:
+            parsed_fecha = sample.fecha
+
+    if not parsed_fecha:
+        return {
+            "query": "resumen_diario",
+            "descripcion": "Top diario de productos tendencia",
+            "partition_key": None,
+            "rows": []
+        }
+
+    safe_limit = normalize_limit(limit)
+    safe_fetch_limit = normalize_limit(fetch_limit)
+
+    rows = session.execute(f"""
+                           SELECT fecha, producto_id, categoria_id, total_eventos,
+                                  total_vistas, total_clicks, total_busquedas,
+                                  total_favoritos, total_compras, score_tendencia
+                           FROM resumen_diario
+                           WHERE fecha = %s
+                           LIMIT {safe_fetch_limit}
+                           """, (parsed_fecha,))
+
+    sorted_rows = sorted(
+        [row_to_dict(row) for row in rows],
+        key=lambda row: (
+            row.get("score_tendencia") or 0,
+            row.get("total_eventos") or 0,
+            row.get("producto_id") or ""
+        ),
+        reverse=True
+    )
+
+    return {
+        "query": "resumen_diario",
+        "descripcion": "Top diario de productos tendencia",
+        "partition_key": {
+            "fecha": serialize_value(parsed_fecha)
+        },
+        "rows": sorted_rows[:safe_limit]
     }
