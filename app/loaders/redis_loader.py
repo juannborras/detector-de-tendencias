@@ -10,15 +10,7 @@ from app.models.redis_keys import (
     EVENT_COUNTER_KEY,
     SESSION_PREFIX,
 )
-
-
-EVENT_SCORE = {
-    "vista": 1,
-    "click": 2,
-    "busqueda": 3,
-    "favorito": 4,
-    "compra": 5,
-}
+from app.generators.data_generator import load_catalog
 
 
 def delete_by_pattern(redis_client, pattern):
@@ -40,6 +32,7 @@ def load_redis(dataset):
     """
 
     redis_client = get_redis_client()
+    event_score = load_catalog()["event_weights"]
 
     eventos = dataset["eventos"]
     usuarios = dataset["usuarios"]
@@ -60,7 +53,7 @@ def load_redis(dataset):
         tipo_evento = evento["tipo_evento"]
         timestamp = evento["timestamp"]
 
-        score = EVENT_SCORE.get(tipo_evento, 0)
+        score = event_score.get(tipo_evento, 0)
 
         redis_client.zincrby(TRENDING_GLOBAL_KEY, score, producto_id)
         redis_client.zincrby(
@@ -83,7 +76,7 @@ def load_redis(dataset):
 
     redis_client.setex(
         CACHE_TOP10_GLOBAL_KEY,
-        300,
+        3600,
         json.dumps(top10_global)
     )
 

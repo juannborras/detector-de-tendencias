@@ -1,8 +1,33 @@
+from app.config import (
+    NEO4J_DEFAULT_EVENT_TYPE,
+    QUERY_LOOKUP_LIMIT,
+    QUERY_SAMPLE_LIMIT,
+    QUERY_TOP_LIMIT,
+)
 from app.connections import get_neo4j_driver
-from app.config import NEO4J_DEFAULT_EVENT_TYPE, QUERY_TOP_LIMIT
 
 
 TIPOS_INTERACCION = ["VIO", "CLICK", "BUSCO", "FAVORITO", "COMPRO"]
+
+EVENT_TYPE_ALIASES = {
+    "VIO": "VIO",
+    "VISTA": "VIO",
+    "VISTAS": "VIO",
+    "VER": "VIO",
+    "CLICK": "CLICK",
+    "CLICKS": "CLICK",
+    "BUSCO": "BUSCO",
+    "BUSQUEDA": "BUSCO",
+    "BUSQUEDAS": "BUSCO",
+    "BUSCAR": "BUSCO",
+    "FAVORITO": "FAVORITO",
+    "FAVORITOS": "FAVORITO",
+    "FAV": "FAVORITO",
+    "COMPRO": "COMPRO",
+    "COMPRA": "COMPRO",
+    "COMPRAS": "COMPRO",
+    "COMPRAR": "COMPRO",
+}
 
 
 COUNTS_CYPHER = """
@@ -29,16 +54,6 @@ RETURN
     eventos_representados
 """
 
-RELACIONES_POR_TIPO_CYPHER = """
-MATCH (:Usuario)-[r]->(:Producto)
-WHERE type(r) IN $tipos
-RETURN
-    type(r) AS tipo,
-    count(r) AS total_relaciones,
-    coalesce(sum(r.cantidad), 0) AS total_eventos
-ORDER BY total_eventos DESC
-"""
-
 USUARIOS_MAS_ACTIVOS_CYPHER = """
 MATCH (u:Usuario)-[r]->(:Producto)
 WHERE type(r) IN $tipos
@@ -50,37 +65,102 @@ ORDER BY eventos DESC
 LIMIT $limit
 """
 
-PRODUCTOS_MAS_CONECTADOS_CYPHER = """
+PRODUCTOS_POR_EVENTO_CYPHER = """
 MATCH (:Usuario)-[r]->(p:Producto)
-WHERE type(r) = $tipo
+WHERE type(r) = $tipo_evento
 RETURN
     p.producto_id AS producto_id,
     p.nombre AS nombre,
-    coalesce(sum(r.cantidad), 0) AS interacciones
-ORDER BY interacciones DESC
+    $tipo_evento AS tipo_evento,
+    count(r) AS usuarios_distintos,
+    coalesce(sum(r.cantidad), 0) AS total_eventos
+ORDER BY total_eventos DESC, usuarios_distintos DESC, producto_id ASC
+LIMIT $limit
+"""
+
+CATEGORIAS_CON_MAS_INTERES_CYPHER = """
+MATCH (u:Usuario)-[r:INTERESADO_EN]->(c:Categoria)
+RETURN
+    c.categoria_id AS categoria_id,
+    c.nombre AS categoria,
+    count(DISTINCT u) AS usuarios_interesados,
+    coalesce(sum(r.cantidad), 0) AS eventos_interes
+ORDER BY eventos_interes DESC, usuarios_interesados DESC, categoria_id ASC
+LIMIT $limit
+"""
+
+USUARIOS_POR_PRODUCTO_EVENTO_CYPHER = """
+MATCH (u:Usuario)-[r]->(p:Producto {producto_id: $producto_id})
+WHERE type(r) = $tipo_evento
+RETURN
+    u.usuario_id AS usuario_id,
+    u.nombre AS nombre,
+    p.producto_id AS producto_id,
+    p.nombre AS producto,
+    $tipo_evento AS tipo_evento,
+    coalesce(r.cantidad, 0) AS cantidad,
+    r.ultimo_evento AS ultimo_evento
+ORDER BY cantidad DESC, usuario_id ASC
+LIMIT $limit
+"""
+
+SAMPLE_PRODUCT_FOR_EVENT_CYPHER = """
+MATCH (:Usuario)-[r]->(p:Producto)
+WHERE type(r) = $tipo_evento
+RETURN p.producto_id AS producto_id, coalesce(sum(r.cantidad), 0) AS total_eventos
+ORDER BY total_eventos DESC, producto_id ASC
 LIMIT $limit
 """
 
 RECOMENDACIONES_SAMPLE_CYPHER = """
-MATCH (u:Usuario)-[:INTERESADO_EN]->(c:Categoria)
+MATCH (u:Usuario)-[interes:INTERESADO_EN]->(c:Categoria)
 MATCH (p:Producto)-[:PERTENECE_A]->(c)
 WHERE NOT EXISTS {
     MATCH (u)-[r]->(p)
     WHERE type(r) IN $tipos
 }
+WITH
+    u,
+    c,
+    p,
+    coalesce(interes.cantidad, 0) AS afinidad_categoria
+OPTIONAL MATCH (:Usuario)-[popularidad]->(p)
+WHERE type(popularidad) IN $tipos
+WITH
+    u,
+    c,
+    p,
+    afinidad_categoria,
+    coalesce(sum(popularidad.cantidad), 0) AS popularidad_producto
 RETURN
     u.usuario_id AS usuario_id,
+    u.nombre AS usuario,
+    c.categoria_id AS categoria_id,
+    c.nombre AS categoria,
     p.producto_id AS producto_recomendado,
-    "Categoria de interes compartida" AS motivo
+    p.nombre AS producto,
+    "Categoria de interes compartida y producto no interactuado" AS motivo,
+    afinidad_categoria,
+    popularidad_producto
+ORDER BY afinidad_categoria DESC, popularidad_producto DESC, usuario_id ASC
 LIMIT $limit
 """
 
 
-def format_cypher(cypher):
-    """
-    Normaliza el Cypher para mostrarlo por consola sin perder legibilidad.
-    """
+def normalize_event_type(tipo_evento=None):
+    candidate = (tipo_evento or NEO4J_DEFAULT_EVENT_TYPE).strip().upper()
+    normalized = EVENT_TYPE_ALIASES.get(candidate)
 
+    if not normalized:
+        raise ValueError(
+            "tipo_evento invalido. Usar uno de: "
+            + ", ".join(TIPOS_INTERACCION)
+        )
+
+    return normalized
+
+
+def format_cypher(cypher):
     return "\n".join(
         line.rstrip()
         for line in cypher.strip().splitlines()
@@ -88,10 +168,6 @@ def format_cypher(cypher):
 
 
 def build_query_result(query, descripcion, cypher, params, rows, extra=None):
-    """
-    Devuelve una salida comun para consola, dashboard y documentacion.
-    """
-
     result = {
         "query": query,
         "descripcion": descripcion,
@@ -106,11 +182,16 @@ def build_query_result(query, descripcion, cypher, params, rows, extra=None):
     return result
 
 
-def query_counts(session):
-    """
-    Consulta cantidades principales de nodos, relaciones y eventos.
-    """
+def record_to_dict(record):
+    row = dict(record)
 
+    if row.get("ultimo_evento") is not None:
+        row["ultimo_evento"] = str(row["ultimo_evento"])
+
+    return row
+
+
+def query_counts(session):
     params = {"tipos": TIPOS_INTERACCION}
     record = session.run(COUNTS_CYPHER, **params).single()
     counts = {
@@ -131,51 +212,19 @@ def query_counts(session):
     )
 
 
-def query_relaciones_por_tipo(session):
-    """
-    Consulta cuantas relaciones y eventos hay por tipo de interaccion.
-    """
-
-    params = {"tipos": TIPOS_INTERACCION}
-    rows = [
-        {
-            "tipo": record["tipo"],
-            "total_relaciones": record["total_relaciones"],
-            "total_eventos": record["total_eventos"],
-        }
-        for record in session.run(RELACIONES_POR_TIPO_CYPHER, **params)
-    ]
-
-    return build_query_result(
-        "relaciones_por_tipo",
-        "Relaciones y eventos agrupados por tipo",
-        RELACIONES_POR_TIPO_CYPHER,
-        params,
-        rows,
-    )
-
-
 def query_usuarios_mas_activos(session, limit=QUERY_TOP_LIMIT):
-    """
-    Consulta usuarios con mayor cantidad de eventos/interacciones.
-    """
-
     params = {
         "tipos": TIPOS_INTERACCION,
         "limit": limit,
     }
     rows = [
-        {
-            "usuario_id": record["usuario_id"],
-            "nombre": record["nombre"],
-            "eventos": record["eventos"],
-        }
+        record_to_dict(record)
         for record in session.run(USUARIOS_MAS_ACTIVOS_CYPHER, **params)
     ]
 
     return build_query_result(
         "usuarios_mas_activos",
-        "Usuarios con mayor actividad",
+        "Usuarios con mayor actividad total en el grafo",
         USUARIOS_MAS_ACTIVOS_CYPHER,
         params,
         rows,
@@ -187,81 +236,145 @@ def query_productos_mas_conectados(
     tipo_evento=NEO4J_DEFAULT_EVENT_TYPE,
     limit=QUERY_TOP_LIMIT,
 ):
-    """
-    Consulta productos con mayor cantidad de interacciones por tipo.
-    """
-
+    normalized_type = normalize_event_type(tipo_evento)
     params = {
-        "tipo": normalize_event_type(tipo_evento),
+        "tipo_evento": normalized_type,
         "limit": limit,
     }
     rows = [
-        {
-            "producto_id": record["producto_id"],
-            "nombre": record["nombre"],
-            "interacciones": record["interacciones"],
-        }
-        for record in session.run(PRODUCTOS_MAS_CONECTADOS_CYPHER, **params)
+        record_to_dict(record)
+        for record in session.run(PRODUCTOS_POR_EVENTO_CYPHER, **params)
     ]
 
     return build_query_result(
-        "productos_mas_conectados",
-        "Productos con mas interacciones por tipo de evento",
-        PRODUCTOS_MAS_CONECTADOS_CYPHER,
+        "productos_por_evento",
+        "Productos con mas eventos del tipo elegido",
+        PRODUCTOS_POR_EVENTO_CYPHER,
+        params,
+        rows,
+        {"tipo_evento": normalized_type},
+    )
+
+
+def query_categorias_con_mas_interes(session, limit=QUERY_TOP_LIMIT):
+    params = {"limit": limit}
+    rows = [
+        record_to_dict(record)
+        for record in session.run(CATEGORIAS_CON_MAS_INTERES_CYPHER, **params)
+    ]
+
+    return build_query_result(
+        "categorias_con_mas_interes",
+        "Categorias con mas usuarios interesados",
+        CATEGORIAS_CON_MAS_INTERES_CYPHER,
         params,
         rows,
     )
 
 
-def query_recomendaciones_sample(session, limit=QUERY_TOP_LIMIT):
-    """
-    Consulta una muestra de recomendaciones por categoria de interes.
-    """
+def get_sample_product_for_event(session, tipo_evento, limit=QUERY_LOOKUP_LIMIT):
+    record = session.run(
+        SAMPLE_PRODUCT_FOR_EVENT_CYPHER,
+        tipo_evento=tipo_evento,
+        limit=limit,
+    ).single()
 
+    if not record:
+        return None
+
+    return record["producto_id"]
+
+
+def query_usuarios_por_producto_evento(
+    session,
+    producto_id=None,
+    tipo_evento=NEO4J_DEFAULT_EVENT_TYPE,
+    limit=QUERY_TOP_LIMIT,
+):
+    normalized_type = normalize_event_type(tipo_evento)
+    selected_producto_id = (producto_id or "").strip()
+
+    if not selected_producto_id:
+        selected_producto_id = get_sample_product_for_event(session, normalized_type)
+
+    if not selected_producto_id:
+        return build_query_result(
+            "usuarios_por_producto_evento",
+            "Usuarios que realizaron el evento elegido sobre un producto",
+            USUARIOS_POR_PRODUCTO_EVENTO_CYPHER,
+            {
+                "producto_id": None,
+                "tipo_evento": normalized_type,
+                "limit": limit,
+            },
+            [],
+            {
+                "producto_id": None,
+                "tipo_evento": normalized_type,
+            },
+        )
+
+    params = {
+        "producto_id": selected_producto_id,
+        "tipo_evento": normalized_type,
+        "limit": limit,
+    }
+    rows = [
+        record_to_dict(record)
+        for record in session.run(USUARIOS_POR_PRODUCTO_EVENTO_CYPHER, **params)
+    ]
+
+    return build_query_result(
+        "usuarios_por_producto_evento",
+        "Usuarios que realizaron el evento elegido sobre un producto",
+        USUARIOS_POR_PRODUCTO_EVENTO_CYPHER,
+        params,
+        rows,
+        {
+            "producto_id": selected_producto_id,
+            "tipo_evento": normalized_type,
+        },
+    )
+
+
+def query_recomendaciones_sample(session, limit=QUERY_TOP_LIMIT):
     params = {
         "tipos": TIPOS_INTERACCION,
         "limit": limit,
     }
     rows = [
-        {
-            "usuario_id": record["usuario_id"],
-            "producto_recomendado": record["producto_recomendado"],
-            "motivo": record["motivo"],
-        }
+        record_to_dict(record)
         for record in session.run(RECOMENDACIONES_SAMPLE_CYPHER, **params)
     ]
 
     return build_query_result(
         "recomendaciones_sample",
-        "Productos recomendados por categoria de interes compartida",
+        "Recomendaciones por categoria de interes y popularidad del producto",
         RECOMENDACIONES_SAMPLE_CYPHER,
         params,
         rows,
     )
 
 
-def normalize_event_type(tipo_evento):
-    normalized = (tipo_evento or "").strip().upper()
-
-    if normalized not in TIPOS_INTERACCION:
-        raise ValueError(
-            "tipo_evento invalido. Usar uno de: "
-            + ", ".join(TIPOS_INTERACCION)
-        )
-
-    return normalized
-
-
-def execute_neo4j_queries(session, tipo_evento=NEO4J_DEFAULT_EVENT_TYPE):
-    """
-    Lista unica de consultas Neo4j de demostracion.
-    """
+def execute_neo4j_queries(
+    session,
+    tipo_evento=NEO4J_DEFAULT_EVENT_TYPE,
+    producto_id=None,
+    producto_evento=None,
+):
+    selected_event = normalize_event_type(tipo_evento)
+    selected_product_event = normalize_event_type(producto_evento or selected_event)
 
     return [
         query_counts(session),
-        query_relaciones_por_tipo(session),
         query_usuarios_mas_activos(session),
-        query_productos_mas_conectados(session, tipo_evento=tipo_evento),
+        query_productos_mas_conectados(session, tipo_evento=selected_event),
+        query_categorias_con_mas_interes(session),
+        query_usuarios_por_producto_evento(
+            session,
+            producto_id=producto_id,
+            tipo_evento=selected_product_event,
+        ),
         query_recomendaciones_sample(session),
     ]
 
@@ -278,25 +391,28 @@ def print_query_result(query):
 
     print(f"Filas devueltas: {len(query['rows'])}")
 
-    for row in query["rows"][:5]:
+    for row in query["rows"][:QUERY_SAMPLE_LIMIT]:
         print(row)
 
 
-def run_neo4j_queries(show_output=True, tipo_evento=NEO4J_DEFAULT_EVENT_TYPE):
-    """
-    Ejecuta todas las consultas Neo4j por consola.
-
-    El dashboard reutiliza esta funcion con show_output=False para consumir los
-    mismos resultados sin duplicar el listado de consultas.
-    """
-
+def run_neo4j_queries(
+    show_output=True,
+    tipo_evento=NEO4J_DEFAULT_EVENT_TYPE,
+    producto_id=None,
+    producto_evento=None,
+):
     driver = None
 
     try:
         driver = get_neo4j_driver()
 
         with driver.session() as session:
-            queries = execute_neo4j_queries(session, tipo_evento=tipo_evento)
+            queries = execute_neo4j_queries(
+                session,
+                tipo_evento=tipo_evento,
+                producto_id=producto_id,
+                producto_evento=producto_evento,
+            )
 
         if show_output:
             print("Neo4j queries")
@@ -328,18 +444,23 @@ def query_map(queries):
 
 
 def build_neo4j_dashboard_data(queries):
-    """
-    Adapta la salida de run_neo4j_queries al contrato del dashboard.
-    """
-
     queries_by_name = query_map(queries)
+    productos_query = queries_by_name["productos_por_evento"]
+    usuarios_producto_query = queries_by_name["usuarios_por_producto_evento"]
 
     return {
         "status": "ok",
         "counts": queries_by_name["conteo_grafo"]["counts"],
-        "relaciones_por_tipo": queries_by_name["relaciones_por_tipo"]["rows"],
         "usuarios_mas_activos": queries_by_name["usuarios_mas_activos"]["rows"],
-        "productos_mas_conectados": queries_by_name["productos_mas_conectados"]["rows"],
+        "productos_por_evento": productos_query["rows"],
+        "productos_mas_conectados": productos_query["rows"],
+        "selected_tipo_evento": productos_query["tipo_evento"],
+        "categorias_con_mas_interes": queries_by_name["categorias_con_mas_interes"]["rows"],
+        "usuarios_por_producto_evento": usuarios_producto_query["rows"],
+        "usuarios_producto_evento_context": {
+            "producto_id": usuarios_producto_query.get("producto_id"),
+            "tipo_evento": usuarios_producto_query.get("tipo_evento"),
+        },
         "recomendaciones_sample": queries_by_name["recomendaciones_sample"]["rows"],
         "queries": [
             {
@@ -354,10 +475,6 @@ def build_neo4j_dashboard_data(queries):
 
 
 def get_error_response(error):
-    """
-    Devuelve la estructura esperada cuando ocurre un error.
-    """
-
     return {
         "status": "error",
         "message": f"Error al obtener datos de Neo4j: {error}",
@@ -368,25 +485,30 @@ def get_error_response(error):
             "relaciones_interaccion": 0,
             "eventos_representados": 0,
         },
-        "relaciones_por_tipo": [],
         "usuarios_mas_activos": [],
+        "productos_por_evento": [],
         "productos_mas_conectados": [],
+        "categorias_con_mas_interes": [],
+        "usuarios_por_producto_evento": [],
+        "usuarios_producto_evento_context": {},
         "recomendaciones_sample": [],
         "queries": [],
     }
 
 
-def get_neo4j_dashboard_data():
-    """
-    Devuelve datos de Neo4j para el dashboard.
-
-    No define ni enumera consultas propias: reutiliza run_neo4j_queries para
-    que exista un unico punto donde se decide que consultas Neo4j se ejecutan.
-    """
-
+def get_neo4j_dashboard_data(
+    tipo_evento=NEO4J_DEFAULT_EVENT_TYPE,
+    producto_id=None,
+    producto_evento=None,
+):
     try:
         return build_neo4j_dashboard_data(
-            run_neo4j_queries(show_output=False)
+            run_neo4j_queries(
+                show_output=False,
+                tipo_evento=tipo_evento,
+                producto_id=producto_id,
+                producto_evento=producto_evento,
+            )
         )
 
     except Exception as error:

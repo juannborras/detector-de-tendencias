@@ -3,15 +3,7 @@ from datetime import datetime
 
 from app.config import LOAD_MODE, CASSANDRA_KEYSPACE
 from app.connections import get_cassandra_session
-
-
-EVENT_SCORE = {
-    "vista": 1,
-    "click": 2,
-    "busqueda": 3,
-    "favorito": 4,
-    "compra": 5,
-}
+from app.generators.data_generator import load_catalog
 
 
 def load_cassandra(dataset):
@@ -27,6 +19,12 @@ def load_cassandra(dataset):
     try:
         cluster, session = get_cassandra_session()
         session.set_keyspace(CASSANDRA_KEYSPACE)
+
+        catalog = load_catalog()
+        event_score = catalog["event_weights"]
+        summary_field_by_event_type = catalog[
+            "cassandra_summary_field_by_event_type"
+        ]
 
         eventos = dataset["eventos"]
 
@@ -139,18 +137,11 @@ def load_cassandra(dataset):
             key = (fecha, producto_id)
             resumen[key]["categoria_id"] = categoria_id
             resumen[key]["total_eventos"] += 1
-            resumen[key]["score_tendencia"] += EVENT_SCORE.get(tipo_evento, 0)
+            resumen[key]["score_tendencia"] += event_score.get(tipo_evento, 0)
 
-            if tipo_evento == "vista":
-                resumen[key]["total_vistas"] += 1
-            elif tipo_evento == "click":
-                resumen[key]["total_clicks"] += 1
-            elif tipo_evento == "busqueda":
-                resumen[key]["total_busquedas"] += 1
-            elif tipo_evento == "favorito":
-                resumen[key]["total_favoritos"] += 1
-            elif tipo_evento == "compra":
-                resumen[key]["total_compras"] += 1
+            summary_field = summary_field_by_event_type.get(tipo_evento)
+            if summary_field:
+                resumen[key][summary_field] += 1
 
         insert_resumen = session.prepare("""
                                          INSERT INTO resumen_diario (

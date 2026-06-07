@@ -82,6 +82,7 @@ def consulta_sesiones(limit=QUERY_SAMPLE_LIMIT):
     for clave in claves_sesion[:limit]:
         datos = r.hgetall(clave)
         ttl_sesion = r.ttl(clave)
+        datos["ttl"] = ttl_sesion
         print(
             f"  {datos.get('usuario_id')} | "
             f"email: {datos.get('email')} | "

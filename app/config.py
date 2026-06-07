@@ -38,6 +38,10 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j123")
 NEO4J_DEFAULT_EVENT_TYPE = os.getenv("NEO4J_DEFAULT_EVENT_TYPE", "COMPRO")
 
 # Dataset
+DATA_CATALOG_PATH = Path(os.getenv(
+    "DATA_CATALOG_PATH",
+    str(BASE_DIR / "app" / "generators" / "catalog.json"),
+))
 TOTAL_USUARIOS = int(os.getenv("TOTAL_USUARIOS", "50"))
 TOTAL_PRODUCTOS = int(os.getenv("TOTAL_PRODUCTOS", "180"))
 TOTAL_CATEGORIAS = int(os.getenv("TOTAL_CATEGORIAS", "20"))
@@ -52,4 +56,5 @@ QUERY_TOP_LIMIT = int(os.getenv("QUERY_TOP_LIMIT", "10"))
 QUERY_CATEGORY_TOP_LIMIT = int(os.getenv("QUERY_CATEGORY_TOP_LIMIT", "3"))
 QUERY_SAMPLE_LIMIT = int(os.getenv("QUERY_SAMPLE_LIMIT", "10"))
 QUERY_FETCH_LIMIT = int(os.getenv("QUERY_FETCH_LIMIT", "200"))
+QUERY_LOOKUP_LIMIT = int(os.getenv("QUERY_LOOKUP_LIMIT", "1"))
 QUERY_LOW_STOCK_THRESHOLD = int(os.getenv("QUERY_LOW_STOCK_THRESHOLD", "10"))

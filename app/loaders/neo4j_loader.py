@@ -1,14 +1,6 @@
 from app.config import LOAD_MODE
 from app.connections import get_neo4j_driver
-
-
-RELATION_BY_EVENT_TYPE = {
-    "vista": "VIO",
-    "click": "CLICK",
-    "busqueda": "BUSCO",
-    "favorito": "FAVORITO",
-    "compra": "COMPRO",
-}
+from app.generators.data_generator import load_catalog
 
 
 def load_neo4j(dataset):
@@ -31,6 +23,7 @@ def load_neo4j(dataset):
         productos = dataset["productos"]
         categorias = dataset["categorias"]
         eventos = dataset["eventos"]
+        relation_by_event_type = load_catalog()["neo4j_relation_by_event_type"]
 
         with driver.session() as session:
             if LOAD_MODE == "reset":
@@ -69,7 +62,7 @@ def load_neo4j(dataset):
                 """, producto)
 
             for evento in eventos:
-                relation_type = RELATION_BY_EVENT_TYPE[evento["tipo_evento"]]
+                relation_type = relation_by_event_type[evento["tipo_evento"]]
 
                 session.run(f"""
                     MATCH (u:Usuario {{usuario_id: $usuario_id}})

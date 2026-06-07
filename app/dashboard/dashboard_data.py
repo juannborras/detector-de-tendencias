@@ -91,6 +91,7 @@ def enrich_dashboard_category_names(data):
         "top_tendencias_categoria_fecha",
         "top_tendencias_resumen_diario",
         "resumen_diario_sample",
+        "eventos_usuario_sample",
     ]:
         data["cassandra"][key] = add_category_names(
             data.get("cassandra", {}).get(key, []),
@@ -100,12 +101,23 @@ def enrich_dashboard_category_names(data):
     return data
 
 
-def get_dashboard_data(cassandra_fecha=None):
+def get_dashboard_data(
+    cassandra_fecha=None,
+    cassandra_categoria_id=None,
+    cassandra_usuario_id=None,
+    neo4j_tipo_evento=None,
+    neo4j_producto_id=None,
+    neo4j_producto_evento=None,
+):
     """
     Junta las salidas de dashboard de las cuatro bases.
 
     cassandra_fecha permite pedir el resumen diario para una fecha elegida
     desde el frontend.
+
+    neo4j_tipo_evento permite filtrar productos por un tipo de evento elegido.
+    neo4j_producto_id y neo4j_producto_evento permiten buscar usuarios que
+    realizaron un evento concreto sobre un producto.
 
     Cada módulo de queries debe implementar su función correspondiente:
     - get_mongo_dashboard_data()
@@ -125,6 +137,8 @@ def get_dashboard_data(cassandra_fecha=None):
             "app.queries.cassandra_queries",
             "get_cassandra_dashboard_data",
             fecha=cassandra_fecha,
+            categoria_id=cassandra_categoria_id,
+            usuario_id=cassandra_usuario_id,
         ),
         "redis": call_optional_dashboard_data(
             "Redis",
@@ -134,7 +148,10 @@ def get_dashboard_data(cassandra_fecha=None):
         "neo4j": call_optional_dashboard_data(
             "Neo4j",
             "app.queries.neo4j_queries",
-            "get_neo4j_dashboard_data"
+            "get_neo4j_dashboard_data",
+            tipo_evento=neo4j_tipo_evento,
+            producto_id=neo4j_producto_id,
+            producto_evento=neo4j_producto_evento,
         ),
     }
 

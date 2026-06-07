@@ -1,4 +1,6 @@
 import argparse
+import os
+
 from app.loaders.load_data import load_all
 from app.queries.run_queries import run_all_queries
 from app.generators.data_generator import generate_dataset, print_dataset_summary
@@ -169,7 +171,15 @@ def main():
     if args.command == "dashboard":
         from app.dashboard.app import run_dashboard
 
-        run_dashboard()
+        host = os.getenv("DASHBOARD_HOST", "127.0.0.1")
+        port = int(os.getenv("DASHBOARD_PORT", "8050"))
+        debug = os.getenv("DASHBOARD_DEBUG", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+
+        run_dashboard(host=host, port=port, debug=debug)
 
 if __name__ == "__main__":
     main()

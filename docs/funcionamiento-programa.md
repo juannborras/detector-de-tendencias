@@ -11,8 +11,8 @@ distintas bases NoSQL, cada una elegida por un motivo distinto:
 |---|---|
 | MongoDB | Guarda datos maestros/documentales: usuarios, productos y categorias |
 | Cassandra | Guarda eventos historicos modelados por consulta |
-| Redis | Pendiente: rankings, cache, contadores y sesiones |
-| Neo4j | Pendiente: relaciones entre usuarios, productos y categorias |
+| Redis | Rankings, cache, contadores y sesiones |
+| Neo4j | Relaciones entre usuarios, productos y categorias |
 
 ---
 
@@ -328,8 +328,8 @@ La validacion revisa:
 | Configuracion | Total logico esperado: 1500 |
 | MongoDB | 50 usuarios, 180 productos, 20 categorias, minimo 5 productos por categoria, coherencia producto-categoria y coherencia marca-categoria |
 | Cassandra | 1250 eventos en tablas principales y resumenes con filas |
-| Redis | Pendiente de consultas finales; valida contador y ranking global |
-| Neo4j | Pendiente de consultas finales; valida nodos y eventos representados |
+| Redis | Valida contador, ranking global, cache y sesiones |
+| Neo4j | Valida nodos, relaciones y eventos representados |
 
 ---
 
@@ -417,10 +417,11 @@ de configuracion (`QUERY_TOP_LIMIT`, `QUERY_CATEGORY_TOP_LIMIT` y
 
 ### Consultas Neo4j
 
-Neo4j consulta conteos del grafo, relaciones por tipo, usuarios mas activos,
-productos mas conectados y recomendaciones simples. El dashboard consume la
-salida generada por `run_neo4j_queries(show_output=False)`, por lo que la lista
-de consultas vive en un unico punto.
+Neo4j consulta conteos del grafo, usuarios mas activos, productos con mas
+eventos del tipo elegido, categorias con mas interes, usuarios que realizaron
+un evento sobre un producto y recomendaciones por categoria de interes. El
+dashboard consume la salida generada por `run_neo4j_queries(show_output=False)`,
+por lo que la lista de consultas vive en un unico punto.
 
 ---
 
@@ -489,7 +490,7 @@ El dashboard muestra:
 | Fecha de analisis | Selector armado con fechas reales disponibles en resumen_diario |
 | Busqueda por ID | Consulta documental de categoria, producto y usuario desde inputs del dashboard |
 | Catalogo documental | Distribucion de productos, stock bajo y productos caros MongoDB |
-| Grafo de relaciones | Conteos, relaciones y recomendaciones Neo4j |
+| Grafo de relaciones | Conteos, productos por evento, busqueda usuario-producto y recomendaciones Neo4j |
 | Estado Redis | Ranking, cache, contador y sesiones |
 | Operaciones CRUD | Pantalla separada para crear/actualizar y eliminar datos en vivo por motor |
 

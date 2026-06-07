@@ -16,10 +16,7 @@ from app.connections import (
 )
 
 from app.models.redis_keys import EVENT_COUNTER_KEY, TRENDING_GLOBAL_KEY
-from app.generators.data_generator import (
-    PRODUCT_BASE_NAMES_BY_CATEGORY_ID,
-    PRODUCT_BRANDS_BY_CATEGORY_ID,
-)
+from app.generators.data_generator import load_catalog
 
 
 def check_result(label, expected, actual):
@@ -75,7 +72,8 @@ def product_matches_category(product):
     Valida que el nombre base del producto corresponda a su categoria.
     """
 
-    allowed_names = PRODUCT_BASE_NAMES_BY_CATEGORY_ID.get(
+    catalog = load_catalog()
+    allowed_names = catalog["product_base_names_by_category_id"].get(
         product.get("categoria_id"),
         [],
     )
@@ -91,7 +89,8 @@ def brand_matches_category(product):
     Valida que la marca del producto corresponda a su categoria.
     """
 
-    allowed_brands = PRODUCT_BRANDS_BY_CATEGORY_ID.get(
+    catalog = load_catalog()
+    allowed_brands = catalog["product_brands_by_category_id"].get(
         product.get("categoria_id"),
         [],
     )
@@ -385,6 +384,7 @@ def validate_neo4j():
 
     try:
         driver = get_neo4j_driver()
+        relation_types = list(load_catalog()["neo4j_relation_by_event_type"].values())
 
         with driver.session() as session:
             usuarios = session.run("""
@@ -404,9 +404,9 @@ def validate_neo4j():
 
             eventos_representados = session.run("""
                 MATCH (:Usuario)-[r]->(:Producto)
-                WHERE type(r) IN ['VIO', 'CLICK', 'BUSCO', 'FAVORITO', 'COMPRO']
+                WHERE type(r) IN $relation_types
                 RETURN coalesce(sum(r.cantidad), 0) AS total
-            """).single()["total"]
+            """, relation_types=relation_types).single()["total"]
 
         results = [
             check_result("Neo4j usuarios", TOTAL_USUARIOS, usuarios),
